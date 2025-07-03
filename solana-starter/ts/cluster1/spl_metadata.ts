@@ -10,39 +10,59 @@ import { createSignerFromKeypair, signerIdentity, publicKey } from "@metaplex-fo
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 
 // Define our Mint address
-const mint = publicKey("<mint address>")
+const mint = publicKey("2A86AycAhymo8rF2LMfgR4D2xPSdLjyGBd7PrqNXUqyy")
 
 // Create a UMI connection
 const umi = createUmi('https://api.devnet.solana.com');
 const keypair = umi.eddsa.createKeypairFromSecretKey(new Uint8Array(wallet));
 const signer = createSignerFromKeypair(umi, keypair);
-umi.use(signerIdentity(createSignerFromKeypair(umi, keypair)));
+umi.use(signerIdentity(signer));
 
 (async () => {
     try {
-        // Start here
-        // let accounts: CreateMetadataAccountV3InstructionAccounts = {
-        //     ???
-        // }
+        // Import the findMetadataPda function and use it to get the metadata PDA for the mint
+        const { findMetadataPda } = await import("@metaplex-foundation/mpl-token-metadata");
+        const metadata = findMetadataPda(umi, { mint });
+        
+        // Define the metadata accounts
+        let accounts: CreateMetadataAccountV3InstructionAccounts = {
+            mint,
+            metadata,
+            updateAuthority: signer,
+            mintAuthority: signer,
+            payer: signer,
+        };
 
-        // let data: DataV2Args = {
-        //     ???
-        // }
+        // Define the metadata data
+        let data: DataV2Args = {
+            name: "VictoryGod",
+            symbol: "VG0D",
+            uri: "https://gateway.irys.xyz/Es8DHX9xCPpL8SFCdTJG5g9Q7gMnsVUp51P4vnwD1WcM",
+            sellerFeeBasisPoints: 0,
+            creators: null,
+            collection: null,
+            uses: null
+        };
 
-        // let args: CreateMetadataAccountV3InstructionArgs = {
-        //     ???
-        // }
+        // Define the metadata arguments
+        let args: CreateMetadataAccountV3InstructionArgs = {
+            data,
+            isMutable: true,
+            collectionDetails: null,
+        };
 
-        // let tx = createMetadataAccountV3(
-        //     umi,
-        //     {
-        //         ...accounts,
-        //         ...args
-        //     }
-        // )
+        // Create the transaction
+        let tx = createMetadataAccountV3(
+            umi,
+            {
+                ...accounts,
+                ...args
+            }
+        );
 
-        // let result = await tx.sendAndConfirm(umi);
-        // console.log(bs58.encode(result.signature));
+        // Send the transaction
+        let result = await tx.sendAndConfirm(umi);
+        console.log("Metadata created. Transaction signature:", bs58.encode(result.signature));
     } catch(e) {
         console.error(`Oops, something went wrong: ${e}`)
     }

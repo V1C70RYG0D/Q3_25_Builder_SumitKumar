@@ -15,14 +15,17 @@ umi.use(signerIdentity(signer));
 
 (async () => {
     try {
-        //1. Load image
-        //2. Convert image to generic file.
-        //3. Upload image
-
-        // const image = ???
-
-        // const [myUri] = ??? 
-        // console.log("Your image URI: ", myUri);
+        // 1. Load image
+        const imageBuffer = await readFile("../../Hisoka.webp");
+        
+        // 2. Convert image to generic file
+        const image = createGenericFile(imageBuffer, "Hisoka.webp", {
+            contentType: "image/webp",
+        });
+        
+        // 3. Upload image
+        const [imageUri] = await umi.uploader.upload([image]);
+        console.log("Your image URI: ", imageUri);
     }
     catch(error) {
         console.log("Oops.. Something went wrong", error);

@@ -17,27 +17,38 @@ umi.use(signerIdentity(signer));
         // Follow this JSON structure
         // https://docs.metaplex.com/programs/token-metadata/changelog/v1.0#json-structure
 
-        // const image = ???
-        // const metadata = {
-        //     name: "?",
-        //     symbol: "?",
-        //     description: "?",
-        //     image: "?",
-        //     attributes: [
-        //         {trait_type: '?', value: '?'}
-        //     ],
-        //     properties: {
-        //         files: [
-        //             {
-        //                 type: "image/png",
-        //                 uri: "?"
-        //             },
-        //         ]
-        //     },
-        //     creators: []
-        // };
-        // const myUri = ???
-        // console.log("Your metadata URI: ", myUri);
+        const imageUri = "https://gateway.irys.xyz/BHDqb2Cp3ncicrC4ZnKoRg8VTA1hzPSxUZgioe7tRabT";
+        
+        const metadata = {
+            name: "VictoryGod",
+            symbol: "VG0D",
+            description: "VictoryGod gonna nail this Turbin3 Q3 Builder Cohort",
+            image: imageUri,
+            attributes: [
+                {trait_type: 'Power', value: 'Bungee Gum'},
+                {trait_type: 'Anime', value: 'Hunter X Hunter'}
+            ],
+            properties: {
+                files: [
+                    {
+                        type: "image/webp",
+                        uri: imageUri
+                    },
+                ]
+            },
+            creators: []
+        };
+        
+        // Convert metadata to a generic file
+        const metadataFile = createGenericFile(
+            Buffer.from(JSON.stringify(metadata)),
+            "metadata.json",
+            { contentType: "application/json" }
+        );
+        
+        // Upload metadata
+        const [metadataUri] = await umi.uploader.upload([metadataFile]);
+        console.log("Your metadata URI: ", metadataUri);
     }
     catch(error) {
         console.log("Oops.. Something went wrong", error);
