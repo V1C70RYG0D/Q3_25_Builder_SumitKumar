@@ -78,3 +78,4 @@ To create an NFT with on-chain metadata:
 ## License
 
 MIT
+# Testing the pushall alias
