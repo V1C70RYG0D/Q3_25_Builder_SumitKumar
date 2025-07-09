@@ -8,7 +8,44 @@ The project contains two main directories:
 - `solana-starter/ts`: TypeScript implementations for various Solana operations
 - `solana-starter/rs`: Rust implementations for Solana programs
 
-## Features
+## Anchor Vault Close Instruction Implementation
+
+This project includes a complete implementation of the close instruction for an Anchor vault program, as per the homework requirements.
+
+### Homework Requirements Completed
+
+1. **Transfer all remaining SOL from vault PDA back to user**: ✅ Implemented in the `close()` function
+2. **Use close constraint on vault_state account**: ✅ Applied in the `Close` struct
+3. **Use close constraint on vault account**: ✅ Applied in the `Close` struct  
+4. **Refund rent payments to user**: ✅ Automatic via close constraint
+5. **Wipe account data from blockchain**: ✅ Automatic via close constraint
+
+### Key Files
+
+- `turbin3-rust/programs/turbin3-rust/src/lib.rs`: Complete Rust implementation
+- `solana-starter/ts/cluster1/vault_close_homework_complete.ts`: Full homework solution
+- `solana-starter/ts/cluster1/vault_close_demo.ts`: Educational demonstration
+
+### Vault Close Implementation Features
+
+- **Two-step process**: Manual SOL transfer + automatic account closure
+- **Security**: Only owner can close (has_one constraint)
+- **Complete refund**: All deposits + rent exemption returned
+- **Clean closure**: Accounts wiped from blockchain
+
+### Running the Demonstrations
+
+```bash
+# View complete homework solution
+npm run vault_close_homework
+
+# View educational demonstration
+npm run vault_close_demo
+```
+
+---
+
+## Original Project Features
 
 - SPL Token creation and management
 - NFT minting with on-chain metadata

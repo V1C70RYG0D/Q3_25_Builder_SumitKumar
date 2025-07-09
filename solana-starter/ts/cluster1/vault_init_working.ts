@@ -4,9 +4,15 @@ import {
   SystemProgram,
   PublicKey,
   Commitment,
+  LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import { Program, Wallet, AnchorProvider, Address } from "@coral-xyz/anchor";
-import { Turbin3Rust, IDL } from "./programs/turbin3_vault";
+import {
+  Program,
+  Wallet,
+  AnchorProvider,
+  Address,
+} from "@coral-xyz/anchor";
+import { WbaVault, IDL } from "./programs/wba_vault";
 import wallet from "../turbin3-wallet.json";
 
 // Import our keypair from the wallet file
@@ -23,36 +29,40 @@ const provider = new AnchorProvider(connection, new Wallet(keypair), {
   commitment,
 });
 
-// Create our program - using our turbin3-rust program ID
-const program = new Program<Turbin3Rust>(
+// Create our program - using WBA vault program
+const program = new Program(
   IDL,
-  "BvspYwyDic1fVBRysCCLMyQeBurrJ6P6f5Zeiy6Zfsz4" as Address,
-  provider,
-);
+  "D51uEDHLbWAxNfodfQDv7qkp8WZtxrhi3uganGbNos7o" as Address,
+  provider
+) as Program<WbaVault>;
 
-// Create a random keypair for vault state
+// Create a new vault state keypair
 const vaultState = Keypair.generate();
-console.log(`Vault State public key: ${vaultState.publicKey.toBase58()}`);
+
+console.log("=== VAULT INITIALIZATION ===");
+console.log(`Owner: ${keypair.publicKey.toBase58()}`);
+console.log(`Vault State: ${vaultState.publicKey.toBase58()}`);
 
 // Create the PDA for vault authority
-// Seeds are "auth", vaultState
 const [vaultAuth] = PublicKey.findProgramAddressSync(
   [Buffer.from("auth"), vaultState.publicKey.toBuffer()],
   program.programId
 );
-console.log(`Vault Auth PDA: ${vaultAuth.toBase58()}`);
 
 // Create the vault PDA
-// Seeds are "vault", vaultAuth
 const [vault] = PublicKey.findProgramAddressSync(
   [Buffer.from("vault"), vaultAuth.toBuffer()],
   program.programId
 );
+
+console.log(`Vault Auth PDA: ${vaultAuth.toBase58()}`);
 console.log(`Vault PDA: ${vault.toBase58()}`);
 
-// Execute our initialization transaction
+// Execute vault initialization
 (async () => {
   try {
+    console.log("\nInitializing vault...");
+    
     const signature = await program.methods
       .initialize()
       .accounts({
@@ -64,16 +74,24 @@ console.log(`Vault PDA: ${vault.toBase58()}`);
       })
       .signers([keypair, vaultState])
       .rpc();
-      
-    console.log(`Init success! Check out your TX here:\n\nhttps://explorer.solana.com/tx/${signature}?cluster=devnet`);
-    
-    // Save vault state for future use
-    console.log(`\nSave these addresses for future operations:`);
+
+    console.log(`✅ Vault initialized successfully!`);
+    console.log(`Transaction: https://explorer.solana.com/tx/${signature}?cluster=devnet`);
+
+    // Save the important addresses
+    console.log("\n=== SAVE THESE ADDRESSES ===");
     console.log(`Vault State: ${vaultState.publicKey.toBase58()}`);
     console.log(`Vault Auth: ${vaultAuth.toBase58()}`);
     console.log(`Vault: ${vault.toBase58()}`);
     
-  } catch (e) {
-    console.error(`Oops, something went wrong: ${e}`);
+    console.log("\n=== NEXT STEPS ===");
+    console.log("1. Use vault_deposit.ts to deposit SOL");
+    console.log("2. Use vault_withdraw.ts to withdraw SOL");
+    console.log("3. Use vault_close_working.ts to close the vault");
+    console.log("4. Replace the VAULT_STATE_ADDRESS in those files with:");
+    console.log(`   ${vaultState.publicKey.toBase58()}`);
+
+  } catch (error) {
+    console.error("❌ Vault initialization failed:", error);
   }
 })();

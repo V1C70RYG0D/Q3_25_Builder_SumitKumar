@@ -1,14 +1,15 @@
 [toolchain]
+anchor_version = "0.31.1"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.devnet]
-turbin3_rust = "PROGRAM_ID_PLACEHOLDER"
+turbin3_rust = "BvspYwyDic1fVBRysCCLMyQeBurrJ6P6f5Zeiy6Zfsz4"
 
 [programs.localnet]
-turbin3_rust = "PROGRAM_ID_PLACEHOLDER"
+turbin3_rust = "BvspYwyDic1fVBRysCCLMyQeBurrJ6P6f5Zeiy6Zfsz4"
 
 [registry]
 url = "https://api.apr.dev"

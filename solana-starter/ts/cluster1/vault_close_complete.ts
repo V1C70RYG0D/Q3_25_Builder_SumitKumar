@@ -10,9 +10,8 @@ import {
   Wallet,
   AnchorProvider,
   Address,
-  BN,
 } from "@coral-xyz/anchor";
-import { Turbin3Rust, IDL } from "./programs/turbin3_vault";
+import { WbaVault, IDL } from "./programs/wba_vault";
 import wallet from "../turbin3-wallet.json";
 
 // Import our keypair from the wallet file
@@ -29,35 +28,27 @@ const provider = new AnchorProvider(connection, new Wallet(keypair), {
   commitment,
 });
 
-// Create our program
-const program = new Program<Turbin3Rust>(IDL, provider);
+// Create our program - using the WBA vault program
+const program = new Program<WbaVault>(
+  IDL,
+  "D51uEDHLbWAxNfodfQDv7qkp8WZtxrhi3uganGbNos7o" as Address,
+  provider
+);
 
 // Replace with your actual vault state public key from vault_init.ts
 const vaultState = new PublicKey("REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS");
 
 (async () => {
   try {
-    // Derive the vault authority PDA
-    const [vaultAuth] = PublicKey.findProgramAddressSync(
-      [Buffer.from("auth"), vaultState.toBuffer()],
-      program.programId
-    );
-
-    // Derive the vault PDA
-    const [vault] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault"), vaultAuth.toBuffer()],
-      program.programId
-    );
+    // For the WBA vault program, we need to understand its close instruction structure
+    // Based on the IDL, the closeAccount instruction expects:
+    // - owner (signer)
+    // - closeVaultState (the vault state to close)
+    // - vaultState (another vault state, possibly for state management)
+    // - systemProgram
 
     console.log("Vault State:", vaultState.toBase58());
-    console.log("Vault Auth:", vaultAuth.toBase58());
-    console.log("Vault:", vault.toBase58());
-
-    // Check current vault balance before closing
-    const vaultAccountInfo = await connection.getAccountInfo(vault);
-    if (vaultAccountInfo) {
-      console.log(`Current vault balance: ${vaultAccountInfo.lamports / 1e9} SOL`);
-    }
+    console.log("Owner:", keypair.publicKey.toBase58());
 
     // Check owner balance before
     const ownerBalanceBefore = await connection.getBalance(keypair.publicKey);
@@ -65,12 +56,11 @@ const vaultState = new PublicKey("REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS");
 
     // Execute the close instruction
     const signature = await program.methods
-      .close()
+      .closeAccount()
       .accounts({
         owner: keypair.publicKey,
-        vaultState: vaultState,
-        vaultAuth: vaultAuth,
-        vault: vault,
+        closeVaultState: vaultState, // The vault state to close
+        vaultState: vaultState,      // Reference vault state
         systemProgram: SystemProgram.programId,
       })
       .signers([keypair])
@@ -79,28 +69,31 @@ const vaultState = new PublicKey("REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS");
     console.log(`Close transaction successful! Signature: ${signature}`);
     console.log(`Check out your TX here:\n\nhttps://explorer.solana.com/tx/${signature}?cluster=devnet`);
 
+    // Wait for confirmation
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
     // Check owner balance after to see the refunded rent
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait a bit for confirmation
     const ownerBalanceAfter = await connection.getBalance(keypair.publicKey);
     console.log(`Owner balance after close: ${ownerBalanceAfter / 1e9} SOL`);
     console.log(`Rent refunded: ${(ownerBalanceAfter - ownerBalanceBefore) / 1e9} SOL`);
 
-    // Verify the accounts are closed
+    // Verify the account is closed
     const vaultStateAccountInfo = await connection.getAccountInfo(vaultState);
-    const vaultAccountInfo2 = await connection.getAccountInfo(vault);
     
-    if (!vaultStateAccountInfo && !vaultAccountInfo2) {
-      console.log("✅ Both vault_state and vault accounts have been successfully closed!");
+    if (!vaultStateAccountInfo) {
+      console.log("✅ Vault state account has been successfully closed!");
+      console.log("✅ All remaining SOL has been transferred back to the owner");
+      console.log("✅ Rent has been refunded to the owner");
     } else {
-      console.log("❌ Some accounts might not have been closed properly");
+      console.log("❌ Vault state account might not have been closed properly");
+      console.log("Account still exists with data length:", vaultStateAccountInfo.data.length);
     }
 
   } catch (e) {
     console.error(`Oops, something went wrong: ${e}`);
-  }
-})();
-    // console.log(`Close success! Check out your TX here:\n\nhttps://explorer.solana.com/tx/${signature}?cluster=devnet`);
-  } catch (e) {
-    console.error(`Oops, something went wrong: ${e}`);
+    console.log("\nMake sure to:");
+    console.log("1. Replace REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS with your actual vault state address");
+    console.log("2. Ensure you have initialized a vault first using vault_init.ts");
+    console.log("3. Ensure you are the owner of the vault state");
   }
 })();

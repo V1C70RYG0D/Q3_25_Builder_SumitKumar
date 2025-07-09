@@ -21,13 +21,16 @@
     "view_nft": "ts-node ./cluster1/view_nft.ts",
     "check_nft": "ts-node ./cluster1/check_nft.ts",
     "vault_init": "ts-node ./cluster1/vault_init.ts",
+    "vault_init_working": "ts-node ./cluster1/vault_init_working.ts",
     "vault_deposit": "ts-node ./cluster1/vault_deposit.ts",
     "vault_withdraw": "ts-node ./cluster1/vault_withdraw.ts",
     "vault_deposit_spl": "ts-node ./cluster1/vault_deposit_spl.ts",
     "vault_withdraw_spl": "ts-node ./cluster1/vault_withdraw_spl.ts",
     "vault_deposit_nft": "ts-node ./cluster1/vault_deposit_nft.ts",
     "vault_withdraw_nft": "ts-node ./cluster1/vault_withdraw_nft.ts",
-    "vault_close": "ts-node ./cluster1/vault_close.ts"
+    "vault_close": "ts-node ./cluster1/vault_close.ts",
+    "vault_close_demo": "ts-node ./cluster1/vault_close_demo.ts",
+    "vault_close_homework": "ts-node ./cluster1/vault_close_homework_complete.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
