@@ -275,7 +275,7 @@ const fees = marketplaceManager.calculateFees(price, feeBasisPoints);
 - Add comprehensive tests
 - Update documentation
 - Use conventional commits
-- Ensure GI.txt compliance
+- Follow best practices and coding standards
 
 ## 📄 License
 

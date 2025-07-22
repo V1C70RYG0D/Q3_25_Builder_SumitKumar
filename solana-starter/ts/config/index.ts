@@ -1,7 +1,7 @@
 /**
  * Configuration management module
  * Handles environment variables and provides typed configuration access
- * Complies with GI.txt guidelines for no hardcoded values
+ * Follows best practices with no hardcoded values
  */
 
 import { config } from 'dotenv';

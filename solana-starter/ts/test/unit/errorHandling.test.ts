@@ -1,6 +1,6 @@
 /**
  * Comprehensive test suite for error handling utilities
- * Ensures 100% test coverage as required by GI.txt
+ * Ensures 100% test coverage following best practices
  */
 
 import { expect } from 'chai';

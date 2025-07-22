@@ -1,6 +1,6 @@
 /**
  * Integration tests for configuration management
- * Ensures configuration system follows GI.txt guidelines
+ * Ensures configuration system follows best practices
  */
 
 import { expect } from 'chai';

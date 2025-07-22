@@ -1,5 +1,5 @@
 /**
- * Enhanced error handling utilities for GI.txt compliance
+ * Enhanced error handling utilities for production applications
  * Provides robust error management with retry mechanisms
  */
 

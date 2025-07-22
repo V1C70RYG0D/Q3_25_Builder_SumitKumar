@@ -117,7 +117,7 @@ async function runIntegrationDemo() {
         console.log("  🌐 Same RPC endpoint for all operations");
         console.log("  🔑 Shared wallet management");
         console.log("  ⚡ Consistent commitment levels");
-        console.log("  🚫 Zero hardcoded values (GI.txt compliant)");
+        console.log("  🚫 Zero hardcoded values (production ready)");
         console.log();
         
         console.log("📋 Active Configuration:");
