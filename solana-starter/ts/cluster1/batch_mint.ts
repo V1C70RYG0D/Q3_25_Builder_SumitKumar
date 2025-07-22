@@ -1,33 +1,32 @@
 import { Keypair, PublicKey, Connection, Commitment } from "@solana/web3.js";
 import { getOrCreateAssociatedTokenAccount, mintTo } from '@solana/spl-token';
-import wallet from "../turbin3-wallet.json"
+import { appConfig } from '../config';
+import { validateEnvironmentVariable } from '../utils/errorHandling';
+import wallet from "../turbin3-wallet.json";
 
 // Import our keypair from the wallet file
 const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
 
 // Create a Solana devnet connection
 const commitment: Commitment = "confirmed";
-const connection = new Connection("https://api.devnet.solana.com", commitment);
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 const token_decimals = 1_000_000n;
 
-// Mint address
-const mint = new PublicKey("2A86AycAhymo8rF2LMfgR4D2xPSdLjyGBd7PrqNXUqyy");
+// Get mint address from environment configuration
+const mintAddress = validateEnvironmentVariable('MINT_ADDRESS', process.env.MINT_ADDRESS, 'batch_mint', true);
+const mint = new PublicKey(mintAddress);
 
-// List of recipient addresses
-const recipients = [
-    "deiyvXCabxck1UYaAWH4PT5mTPGhhkmLRcFhRGdWBJq",
-    "HWU5EhdNTd9pw8PQoapFg5jnCxk8NPDcXYsxpQvEcAen",
-    "DwFgED8ZcztuT4FourTdcDu5tAGrZPMXfjVbLbcMBCHf",
-    "AkXiNtkzkknE5RjDotbpNyP9bsejVSffSEud5wygDscK",
-    "DwUkSRrMWtcxsqVEJk7coMwpRVXDdxS2mxBPjMMgN1pY",
-    "4UxpHTgUorzAD3pEAzpNi8TGEesZr6xGoiZ95ADUpnYu",
-    "J2Rnp3AkbHWzXnGC9rnYnnKesA4ft63xXZKSmnURypoH",
-    "5MWpSXNiS3coFVuzSFQca2Y8tDfUv9BqpUFM4UrJQQ41"
-];
+// Get recipient addresses from environment configuration
+const recipientAddressesStr = validateEnvironmentVariable('RECIPIENT_ADDRESSES', process.env.RECIPIENT_ADDRESSES, 'batch_mint', true);
+const recipients = recipientAddressesStr.split(',').map(addr => addr.trim()).filter(addr => addr.length > 0);
 
-// Amount to mint to each recipient (69 tokens)
-const amountToMint = 69n * token_decimals;
+// Get amount to mint from environment configuration with default
+const amountPerRecipient = process.env.AMOUNT_PER_RECIPIENT ? 
+    BigInt(process.env.AMOUNT_PER_RECIPIENT) : 
+    69n; // Default amount
+
+const amountToMint = amountPerRecipient * token_decimals;
 
 (async () => {
     try {

@@ -18,13 +18,26 @@ import {
   Commitment,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
+import { appConfig, isVaultConfigured } from '../config';
+import { createConnection, displayNetworkInfo, logTransaction } from '../utils/solana';
 
 // Configuration
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const connection = createConnection();
 
 // Example demonstration of the close instruction concept
 async function demonstrateVaultClose() {
   console.log("=== ANCHOR VAULT CLOSE INSTRUCTION DEMONSTRATION ===\n");
+  
+  displayNetworkInfo();
+  
+  if (!isVaultConfigured()) {
+    console.log("\n⚠️  Vault not configured in environment variables");
+    console.log("This is a demonstration of the concepts. To run with actual vault:");
+    console.log("1. Set VAULT_STATE_ADDRESS in your .env file");
+    console.log("2. Set VAULT_AUTH_ADDRESS in your .env file"); 
+    console.log("3. Set VAULT_ADDRESS in your .env file");
+    console.log("\nProceeding with demonstration...\n");
+  }
   
   console.log("The close instruction in an Anchor vault program typically includes:\n");
   
@@ -157,8 +170,8 @@ import { Program, AnchorProvider } from "@coral-xyz/anchor";
 // 1. Set up your program connection
 const program = new Program(IDL, PROGRAM_ID, provider);
 
-// 2. Get your vault state address (from when you initialized)
-const vaultState = new PublicKey("YOUR_VAULT_STATE_ADDRESS");
+// 2. Get your vault state address (from configuration or environment)
+const vaultState = appConfig.vault.vaultStateAddress;
 
 // 3. Derive required PDAs
 const [vaultAuth] = PublicKey.findProgramAddressSync(

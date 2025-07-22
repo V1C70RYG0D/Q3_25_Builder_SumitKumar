@@ -1,2 +1,91 @@
+# Environment Variables
 .env
+.env.local
+.env.*.local
+
+# Wallet Files (Security - Never commit private keys)
+*wallet.json
+*.key
+*.pem
+
+# Build Artifacts and Dependencies
+node_modules/
+target/
+dist/
+build/
+.next/
+*.log
+*.tgz
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Rust specific
+Cargo.lock
+**/*.rs.bk
+
+# TypeScript/JavaScript
+*.tsbuildinfo
+.eslintcache
+
+# Temporary and Cache files
+.cache/
+.tmp/
+.temp/
+*.tmp
+*.temp
+
+# Package manager
+.npm
+.yarn
+yarn-error.log
+package-lock.json
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Deployment artifacts
+deploy/
+*.keypair
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Project-specific files to ignore
 Hisoka.webp
+GI.txt
+
+# Exclude MD files except READMEs and documentation folders
+*.md
+!README.md
+!**/README.md
+!docs/**/*.md
+!documentation/**/*.md
+
+# Exclude batch and shell scripts
+*.bat
+*.sh
+
+# Keep this structure - exclude everything in target but keep the directory
+target/*
+!target/.gitkeep
+.env.example
+.gitignore

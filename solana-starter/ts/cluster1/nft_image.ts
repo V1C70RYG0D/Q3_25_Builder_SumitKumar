@@ -1,11 +1,16 @@
 import wallet from "../turbin3-wallet.json"
+import { appConfig } from '../config';
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults"
+import { appConfig } from '../config';
 import { createGenericFile, createSignerFromKeypair, signerIdentity } from "@metaplex-foundation/umi"
+import { appConfig } from '../config';
 import { irysUploader } from "@metaplex-foundation/umi-uploader-irys"
+import { appConfig } from '../config';
 import { readFile } from "fs/promises"
+import { appConfig } from '../config';
 
 // Create a devnet connection
-const umi = createUmi('https://api.devnet.solana.com');
+const umi = createUmi(appConfig.solana.rpcUrl);
 
 let keypair = umi.eddsa.createKeypairFromSecretKey(new Uint8Array(wallet));
 const signer = createSignerFromKeypair(umi, keypair);

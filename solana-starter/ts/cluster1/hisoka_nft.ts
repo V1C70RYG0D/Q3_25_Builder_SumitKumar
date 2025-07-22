@@ -12,6 +12,7 @@ import {
 } from "@metaplex-foundation/mpl-token-metadata";
 import { createGenericFile, createSignerFromKeypair, signerIdentity, publicKey } from "@metaplex-foundation/umi";
 import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
+import { appConfig } from '../config';
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { readFile } from "fs/promises";
 
@@ -20,10 +21,10 @@ const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
 
 // Create a Solana devnet connection
 const commitment: Commitment = "confirmed";
-const connection = new Connection("https://api.devnet.solana.com", commitment);
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 // Create a UMI connection (for metadata)
-const umi = createUmi('https://api.devnet.solana.com');
+const umi = createUmi(appConfig.solana.rpcUrl);
 const umiKeypair = umi.eddsa.createKeypairFromSecretKey(new Uint8Array(wallet));
 const signer = createSignerFromKeypair(umi, umiKeypair);
 umi.use(irysUploader());

@@ -1,7 +1,13 @@
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 
 // Create a Solana devnet connection
-const connection = new Connection("https://api.devnet.solana.com");
+const rpcUrl = process.env.SOLANA_RPC_URL;
+if (!rpcUrl) {
+    console.error("❌ SOLANA_RPC_URL not set in environment variables");
+    console.log("Please set SOLANA_RPC_URL in your .env file");
+    process.exit(1);
+}
+const connection = new Connection(rpcUrl);
 
 // Generate a new keypair
 const keypair = Keypair.generate();

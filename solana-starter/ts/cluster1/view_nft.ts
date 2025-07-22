@@ -1,4 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";        // Method 2: Using direct account lookup for metadata PDA
+import { appConfig } from '../config';
         try {
             console.log("\n--- Checking on-chain metadata ---");
             
@@ -30,8 +31,11 @@ import { Connection, PublicKey } from "@solana/web3.js";        // Method 2: Usi
             console.log("Could not fetch on-chain metadata:", umiError.message || String(umiError));
         } } from "@metaplex-foundation/js";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import { appConfig } from '../config';
 import { findMetadataPda } from "@metaplex-foundation/mpl-token-metadata";
+import { appConfig } from '../config';
 import { publicKey } from "@metaplex-foundation/umi";
+import { appConfig } from '../config';
 
 // Use global fetch instead of node-fetch
 const fetch = global.fetch;
@@ -47,13 +51,13 @@ if (process.argv.length < 3) {
 const mintAddress = process.argv[2];
 
 // Create a Solana connection
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 // Create a Metaplex instance
 const metaplex = new Metaplex(connection);
 
 // Create a UMI instance
-const umi = createUmi('https://api.devnet.solana.com');
+const umi = createUmi(appConfig.solana.rpcUrl);
 
 (async () => {
     try {

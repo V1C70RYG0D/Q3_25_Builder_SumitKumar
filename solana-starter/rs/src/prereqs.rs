@@ -16,7 +16,11 @@ mod prereqs_tests {
 
     use crate::programs::wba_prereq::{WbaPrereqProgram, CompleteArgs, UpdateArgs};
 
-    const RPC_URL: &str = "https://api.devnet.solana.com";
+    use std::env;
+
+    fn get_rpc_url() -> String {
+        env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string())
+    }
 
     #[test]
     fn keygen() {
@@ -54,7 +58,7 @@ mod prereqs_tests {
         let keypair = read_keypair_file("dev-wallet.json").expect("Couldn't find wallet file");
 
         // Connected to Solana Devnet RPC Client
-        let client = RpcClient::new(RPC_URL);
+        let client = RpcClient::new(&get_rpc_url());
         
         // We're going to claim 2 devnet SOL tokens (2 billion lamports)
         match client.request_airdrop(&keypair.pubkey(), 2_000_000_000u64) {
@@ -76,7 +80,7 @@ mod prereqs_tests {
             Pubkey::from_str("GLtaTaYiTQrgz411iPJD79rsoee59HhEy18rtRdrhEUJ").unwrap();
 
         // Create a Solana devnet connection
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
 
         // Get balance of dev wallet
         let balance = rpc_client
@@ -135,7 +139,7 @@ mod prereqs_tests {
     #[test]
     fn enroll() {
         // Create a Solana devnet connection
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
 
         // Let's define all our accounts
         let signer = read_keypair_file("wba-wallet.json").expect("Couldn't find wallet file");
@@ -172,7 +176,7 @@ mod prereqs_tests {
     #[test]
     fn update() {
         // Create a Solana devnet connection
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
 
         // Let's define all our accounts
         let signer = read_keypair_file("wba-wallet.json").expect("Couldn't find wallet file");

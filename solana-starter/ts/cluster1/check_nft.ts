@@ -1,5 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import { appConfig } from '../config';
 import { Metaplex } from "@metaplex-foundation/js";
+import { appConfig } from '../config';
 
 // Check command line arguments
 if (process.argv.length < 3) {
@@ -12,7 +14,7 @@ if (process.argv.length < 3) {
 const mintAddress = process.argv[2];
 
 // Create a Solana connection
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 // Create a Metaplex instance
 const metaplex = new Metaplex(connection);

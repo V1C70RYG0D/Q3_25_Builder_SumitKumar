@@ -1,13 +1,16 @@
 import { Keypair, PublicKey, Connection, Commitment } from "@solana/web3.js";
+import { appConfig } from '../config';
 import { getOrCreateAssociatedTokenAccount, mintTo } from '@solana/spl-token';
+import { appConfig } from '../config';
 import wallet from "../turbin3-wallet.json"
+import { appConfig } from '../config';
 
 // Import our keypair from the wallet file
 const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
 
 //Create a Solana devnet connection
 const commitment: Commitment = "confirmed";
-const connection = new Connection("https://api.devnet.solana.com", commitment);
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 const token_decimals = 1_000_000n;
 

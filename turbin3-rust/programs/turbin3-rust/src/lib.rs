@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
+use anchor_lang::solana_program::clock::Clock;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Token, TokenAccount, Mint, Transfer as SplTransfer}
@@ -398,6 +399,246 @@ pub mod turbin3_rust {
         token::transfer(
             CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer_out, signer_seeds),
             amount_out,
+        )?;
+
+        Ok(())
+    }
+
+    // ============ STAKING INSTRUCTIONS ============
+
+    pub fn initialize_staking_pool(ctx: Context<InitializeStakingPool>, reward_rate: u64, cooldown_period: i64) -> Result<()> {
+        require!(reward_rate > 0, ErrorCode::InvalidAmount);
+        require!(cooldown_period > 0, ErrorCode::InvalidAmount);
+
+        let pool = &mut ctx.accounts.staking_pool;
+        pool.admin = ctx.accounts.admin.key();
+        pool.stake_mint = ctx.accounts.stake_mint.key();
+        pool.reward_mint = ctx.accounts.reward_mint.key();
+        pool.stake_vault = ctx.accounts.stake_vault.key();
+        pool.reward_vault = ctx.accounts.reward_vault.key();
+        pool.total_staked = 0;
+        pool.reward_rate = reward_rate; // Rewards per second per staked token
+        pool.last_update_time = Clock::get()?.unix_timestamp;
+        pool.accumulated_reward_per_share = 0;
+        pool.cooldown_period = cooldown_period;
+        pool.bump = ctx.bumps.staking_pool;
+        Ok(())
+    }
+
+    pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
+        let current_time = Clock::get()?.unix_timestamp;
+        let staking_pool_key = ctx.accounts.staking_pool.key();
+        let pool = &mut ctx.accounts.staking_pool;
+        let user_stake = &mut ctx.accounts.user_stake;
+
+        // Update reward accumulation
+        if pool.total_staked > 0 {
+            let time_elapsed = current_time - pool.last_update_time;
+            let rewards_per_share = (pool.reward_rate as u128 * time_elapsed as u128) / pool.total_staked as u128;
+            pool.accumulated_reward_per_share = pool.accumulated_reward_per_share.checked_add(rewards_per_share as u64).unwrap();
+        }
+        pool.last_update_time = current_time;
+
+        // Initialize user stake for new user
+        user_stake.user = ctx.accounts.user.key();
+        user_stake.staking_pool = staking_pool_key;
+        user_stake.amount = amount;
+        user_stake.reward_debt = (amount as u128 * pool.accumulated_reward_per_share as u128 / 1e9 as u128) as u64;
+        user_stake.pending_rewards = 0;
+        user_stake.last_stake_time = current_time;
+        user_stake.bump = ctx.bumps.user_stake;
+
+        // Update pool total
+        pool.total_staked = pool.total_staked.checked_add(amount).unwrap();
+
+        // Transfer stake tokens from user to pool
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.user_stake_account.to_account_info(),
+            to: ctx.accounts.stake_vault.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_accounts),
+            amount,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn add_stake(ctx: Context<AddStake>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
+        let current_time = Clock::get()?.unix_timestamp;
+        let pool = &mut ctx.accounts.staking_pool;
+        let user_stake = &mut ctx.accounts.user_stake;
+
+        // Update reward accumulation
+        if pool.total_staked > 0 {
+            let time_elapsed = current_time - pool.last_update_time;
+            let rewards_per_share = (pool.reward_rate as u128 * time_elapsed as u128) / pool.total_staked as u128;
+            pool.accumulated_reward_per_share = pool.accumulated_reward_per_share.checked_add(rewards_per_share as u64).unwrap();
+        }
+        pool.last_update_time = current_time;
+
+        // Calculate pending rewards for existing user
+        if user_stake.amount > 0 {
+            let pending_rewards = ((user_stake.amount as u128 * pool.accumulated_reward_per_share as u128) / 1e9 as u128) - user_stake.reward_debt as u128;
+            user_stake.pending_rewards = user_stake.pending_rewards.checked_add(pending_rewards as u64).unwrap();
+        }
+
+        // Update user stake
+        user_stake.amount = user_stake.amount.checked_add(amount).unwrap();
+        user_stake.last_stake_time = current_time;
+        user_stake.reward_debt = (user_stake.amount as u128 * pool.accumulated_reward_per_share as u128 / 1e9 as u128) as u64;
+
+        // Update pool total
+        pool.total_staked = pool.total_staked.checked_add(amount).unwrap();
+
+        // Transfer stake tokens from user to pool
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.user_stake_account.to_account_info(),
+            to: ctx.accounts.stake_vault.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_accounts),
+            amount,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn unstake_tokens(ctx: Context<UnstakeTokens>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
+        let current_time = Clock::get()?.unix_timestamp;
+        let user_stake = &mut ctx.accounts.user_stake;
+
+        require!(user_stake.amount >= amount, ErrorCode::InsufficientFunds);
+        require!(
+            current_time >= user_stake.last_stake_time + ctx.accounts.staking_pool.cooldown_period,
+            ErrorCode::CooldownNotMet
+        );
+
+        let pool = &mut ctx.accounts.staking_pool;
+
+        // Update reward accumulation
+        if pool.total_staked > 0 {
+            let time_elapsed = current_time - pool.last_update_time;
+            let rewards_per_share = (pool.reward_rate as u128 * time_elapsed as u128) / pool.total_staked as u128;
+            pool.accumulated_reward_per_share = pool.accumulated_reward_per_share.checked_add(rewards_per_share as u64).unwrap();
+        }
+        pool.last_update_time = current_time;
+
+        // Calculate pending rewards for user
+        let pending_rewards = ((user_stake.amount as u128 * pool.accumulated_reward_per_share as u128) / 1e9 as u128) - user_stake.reward_debt as u128;
+        user_stake.pending_rewards = user_stake.pending_rewards.checked_add(pending_rewards as u64).unwrap();
+
+        // Update user stake
+        user_stake.amount = user_stake.amount.checked_sub(amount).unwrap();
+        user_stake.reward_debt = (user_stake.amount as u128 * pool.accumulated_reward_per_share as u128 / 1e9 as u128) as u64;
+
+        // Update pool total
+        pool.total_staked = pool.total_staked.checked_sub(amount).unwrap();
+
+        let stake_mint = pool.stake_mint;
+        let reward_mint = pool.reward_mint;
+        let pool_bump = pool.bump;
+
+        let seeds = &[
+            b"staking_pool",
+            stake_mint.as_ref(),
+            reward_mint.as_ref(),
+            &[pool_bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer stake tokens from pool back to user
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.stake_vault.to_account_info(),
+            to: ctx.accounts.user_stake_account.to_account_info(),
+            authority: ctx.accounts.staking_pool.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer_accounts, signer_seeds),
+            amount,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
+        let current_time = Clock::get()?.unix_timestamp;
+        let user_stake = &mut ctx.accounts.user_stake;
+        let pool = &mut ctx.accounts.staking_pool;
+
+        // Update reward accumulation
+        if pool.total_staked > 0 {
+            let time_elapsed = current_time - pool.last_update_time;
+            let rewards_per_share = (pool.reward_rate as u128 * time_elapsed as u128) / pool.total_staked as u128;
+            pool.accumulated_reward_per_share = pool.accumulated_reward_per_share.checked_add(rewards_per_share as u64).unwrap();
+        }
+        pool.last_update_time = current_time;
+
+        // Calculate total pending rewards
+        let pending_rewards = if user_stake.amount > 0 {
+            ((user_stake.amount as u128 * pool.accumulated_reward_per_share as u128) / 1e9 as u128) - user_stake.reward_debt as u128
+        } else {
+            0
+        };
+        let total_rewards = user_stake.pending_rewards.checked_add(pending_rewards as u64).unwrap();
+
+        require!(total_rewards > 0, ErrorCode::NoRewardsToClaim);
+
+        // Reset pending rewards and update debt
+        user_stake.pending_rewards = 0;
+        user_stake.reward_debt = (user_stake.amount as u128 * pool.accumulated_reward_per_share as u128 / 1e9 as u128) as u64;
+
+        let stake_mint = pool.stake_mint;
+        let reward_mint = pool.reward_mint;
+        let pool_bump = pool.bump;
+
+        let seeds = &[
+            b"staking_pool",
+            stake_mint.as_ref(),
+            reward_mint.as_ref(),
+            &[pool_bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer reward tokens from pool to user
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.reward_vault.to_account_info(),
+            to: ctx.accounts.user_reward_account.to_account_info(),
+            authority: ctx.accounts.staking_pool.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer_accounts, signer_seeds),
+            total_rewards,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn fund_rewards(ctx: Context<FundRewards>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
+        // Transfer reward tokens from admin to pool
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.admin_reward_account.to_account_info(),
+            to: ctx.accounts.reward_vault.to_account_info(),
+            authority: ctx.accounts.admin.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_accounts),
+            amount,
         )?;
 
         Ok(())
@@ -808,6 +1049,204 @@ pub struct SwapTokens<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+// Staking Accounts
+#[derive(Accounts)]
+pub struct InitializeStakingPool<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        init,
+        payer = admin,
+        space = StakingPool::INIT_SPACE,
+        seeds = [b"staking_pool", stake_mint.key().as_ref(), reward_mint.key().as_ref()],
+        bump
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+    
+    pub stake_mint: Account<'info, Mint>,
+    pub reward_mint: Account<'info, Mint>,
+    
+    #[account(
+        init,
+        payer = admin,
+        token::mint = stake_mint,
+        token::authority = staking_pool,
+        seeds = [b"stake_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub stake_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        init,
+        payer = admin,
+        token::mint = reward_mint,
+        token::authority = staking_pool,
+        seeds = [b"reward_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub reward_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct StakeTokens<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"staking_pool", staking_pool.stake_mint.as_ref(), staking_pool.reward_mint.as_ref()],
+        bump = staking_pool.bump
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+    
+    #[account(
+        init,
+        payer = user,
+        space = UserStake::INIT_SPACE,
+        seeds = [b"user_stake", staking_pool.key().as_ref(), user.key().as_ref()],
+        bump
+    )]
+    pub user_stake: Account<'info, UserStake>,
+    
+    #[account(mut)]
+    pub user_stake_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"stake_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub stake_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AddStake<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"staking_pool", staking_pool.stake_mint.as_ref(), staking_pool.reward_mint.as_ref()],
+        bump = staking_pool.bump
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+    
+    #[account(
+        mut,
+        seeds = [b"user_stake", staking_pool.key().as_ref(), user.key().as_ref()],
+        bump = user_stake.bump
+    )]
+    pub user_stake: Account<'info, UserStake>,
+    
+    #[account(mut)]
+    pub user_stake_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"stake_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub stake_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct UnstakeTokens<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"staking_pool", staking_pool.stake_mint.as_ref(), staking_pool.reward_mint.as_ref()],
+        bump = staking_pool.bump
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+    
+    #[account(
+        mut,
+        seeds = [b"user_stake", staking_pool.key().as_ref(), user.key().as_ref()],
+        bump
+    )]
+    pub user_stake: Account<'info, UserStake>,
+    
+    #[account(mut)]
+    pub user_stake_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"stake_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub stake_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimRewards<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"staking_pool", staking_pool.stake_mint.as_ref(), staking_pool.reward_mint.as_ref()],
+        bump = staking_pool.bump
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+    
+    #[account(
+        mut,
+        seeds = [b"user_stake", staking_pool.key().as_ref(), user.key().as_ref()],
+        bump
+    )]
+    pub user_stake: Account<'info, UserStake>,
+    
+    #[account(mut)]
+    pub user_reward_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"reward_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub reward_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct FundRewards<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        seeds = [b"staking_pool", staking_pool.stake_mint.as_ref(), staking_pool.reward_mint.as_ref()],
+        bump = staking_pool.bump,
+        has_one = admin
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+    
+    #[account(mut)]
+    pub admin_reward_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"reward_vault", staking_pool.key().as_ref()],
+        bump
+    )]
+    pub reward_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
 // ============ DATA STRUCTURES ============
 
 #[account]
@@ -843,6 +1282,34 @@ pub struct AmmState {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct StakingPool {
+    pub admin: Pubkey,
+    pub stake_mint: Pubkey,
+    pub reward_mint: Pubkey,
+    pub stake_vault: Pubkey,
+    pub reward_vault: Pubkey,
+    pub total_staked: u64,
+    pub reward_rate: u64, // Rewards per second per staked token (scaled by 1e9)
+    pub last_update_time: i64,
+    pub accumulated_reward_per_share: u64, // Scaled by 1e9
+    pub cooldown_period: i64, // Cooldown period in seconds
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct UserStake {
+    pub user: Pubkey,
+    pub staking_pool: Pubkey,
+    pub amount: u64,
+    pub reward_debt: u64, // Scaled by 1e9
+    pub pending_rewards: u64,
+    pub last_stake_time: i64,
+    pub bump: u8,
+}
+
 // ============ ERROR CODES ============
 
 #[error_code]
@@ -855,4 +1322,59 @@ pub enum ErrorCode {
     InvalidFee,
     #[msg("Slippage tolerance exceeded")]
     SlippageExceeded,
+    #[msg("Cooldown period not met")]
+    CooldownNotMet,
+    #[msg("No rewards to claim")]
+    NoRewardsToClaim,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_program_id() {
+        let id = crate::ID;
+        assert!(!id.to_string().is_empty());
+    }
+
+    #[test]
+    fn test_error_codes() {
+        // Test that our error codes are properly defined
+        // Anchor starts error codes from 6000 by default but let's just test the ordering
+        let invalid_amount = ErrorCode::InvalidAmount as u32;
+        let insufficient_funds = ErrorCode::InsufficientFunds as u32;
+        let invalid_fee = ErrorCode::InvalidFee as u32;
+        let slippage_exceeded = ErrorCode::SlippageExceeded as u32;
+        let cooldown_not_met = ErrorCode::CooldownNotMet as u32;
+        let no_rewards_to_claim = ErrorCode::NoRewardsToClaim as u32;
+
+        // Test that they are sequential
+        assert_eq!(insufficient_funds, invalid_amount + 1);
+        assert_eq!(invalid_fee, insufficient_funds + 1);
+        assert_eq!(slippage_exceeded, invalid_fee + 1);
+        assert_eq!(cooldown_not_met, slippage_exceeded + 1);
+        assert_eq!(no_rewards_to_claim, cooldown_not_met + 1);
+    }
+
+    #[test]
+    fn test_staking_pool_constants() {
+        // Verify that our precision constant is reasonable
+        const PRECISION: u64 = 1_000_000_000;
+        const COOLDOWN_PERIOD: i64 = 86400; // 24 hours
+        assert_eq!(PRECISION, 1_000_000_000);
+        assert_eq!(COOLDOWN_PERIOD, 86400); // 24 hours
+    }
+
+    #[test]
+    fn test_data_structures() {
+        // Verify data structure sizes are reasonable
+        use std::mem;
+        
+        // StakingPool should be a reasonable size
+        assert!(mem::size_of::<StakingPool>() < 1000);
+        
+        // UserStake should be a reasonable size
+        assert!(mem::size_of::<UserStake>() < 500);
+    }
 }

@@ -1,0 +1,846 @@
+use anchor_lang::prelude::*;
+use anchor_lang::system_program::{transfer, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer as SplTransfer};
+
+declare_id!("BvspYwyDic1fVBRysCCLMyQeBurrJ6P6f5Zeiy6Zfsz4");
+
+#[program]
+pub mod turbin3_rust {
+    use super::*;
+
+    // ============ VAULT INSTRUCTIONS ============
+    
+    pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
+        ctx.accounts.vault_state.owner = ctx.accounts.owner.key();
+        ctx.accounts.vault_state.auth_bump = ctx.bumps.vault_auth;
+        ctx.accounts.vault_state.vault_bump = ctx.bumps.vault;
+        ctx.accounts.vault_state.score = 0;
+        Ok(())
+    }
+
+    pub fn deposit_sol(ctx: Context<DepositSol>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+        
+        let transfer_accounts = Transfer {
+            from: ctx.accounts.owner.to_account_info(),
+            to: ctx.accounts.vault.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            transfer_accounts,
+        );
+
+        transfer(cpi_ctx, amount)?;
+        Ok(())
+    }
+
+    pub fn withdraw_sol(ctx: Context<WithdrawSol>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+        require!(
+            ctx.accounts.vault.to_account_info().lamports() >= amount,
+            ErrorCode::InsufficientFunds
+        );
+
+        let seeds = &[
+            b"auth",
+            ctx.accounts.vault_state.to_account_info().key.as_ref(),
+            &[ctx.accounts.vault_state.auth_bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        let transfer_accounts = Transfer {
+            from: ctx.accounts.vault.to_account_info(),
+            to: ctx.accounts.owner.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            transfer_accounts,
+            signer_seeds,
+        );
+
+        transfer(cpi_ctx, amount)?;
+        Ok(())
+    }
+
+    pub fn close_vault(ctx: Context<CloseVault>) -> Result<()> {
+        let seeds = &[
+            b"auth",
+            ctx.accounts.vault_state.to_account_info().key.as_ref(),
+            &[ctx.accounts.vault_state.auth_bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer all remaining SOL from vault back to owner
+        let vault_balance = ctx.accounts.vault.to_account_info().lamports();
+        if vault_balance > 0 {
+            let transfer_accounts = Transfer {
+                from: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.owner.to_account_info(),
+            };
+
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                transfer_accounts,
+                signer_seeds,
+            );
+
+            transfer(cpi_ctx, vault_balance)?;
+        }
+
+        Ok(())
+    }
+
+    // ============ ESCROW INSTRUCTIONS ============
+
+    pub fn initialize_escrow(ctx: Context<InitializeEscrow>, amount: u64, receive_amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+        require!(receive_amount > 0, ErrorCode::InvalidAmount);
+
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.maker = ctx.accounts.maker.key();
+        escrow.maker_token_account = ctx.accounts.maker_token_account.key();
+        escrow.maker_receive_token_account = ctx.accounts.maker_receive_token_account.key();
+        escrow.expected_receive_amount = receive_amount;
+        escrow.bump = ctx.bumps.escrow;
+
+        // Transfer tokens from maker to escrow
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.maker_token_account.to_account_info(),
+            to: ctx.accounts.escrow_token_account.to_account_info(),
+            authority: ctx.accounts.maker.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_accounts,
+        );
+
+        token::transfer(cpi_ctx, amount)?;
+        Ok(())
+    }
+
+    pub fn cancel_escrow(ctx: Context<CancelEscrow>) -> Result<()> {
+        let seeds = &[
+            b"escrow",
+            ctx.accounts.escrow.maker.as_ref(),
+            &[ctx.accounts.escrow.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer tokens back to maker
+        let balance = ctx.accounts.escrow_token_account.amount;
+        
+        let transfer_accounts = SplTransfer {
+            from: ctx.accounts.escrow_token_account.to_account_info(),
+            to: ctx.accounts.maker_token_account.to_account_info(),
+            authority: ctx.accounts.escrow.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_accounts,
+            signer_seeds,
+        );
+
+        token::transfer(cpi_ctx, balance)?;
+        Ok(())
+    }
+
+    pub fn exchange_escrow(ctx: Context<ExchangeEscrow>) -> Result<()> {
+        let escrow = &ctx.accounts.escrow;
+        let escrow_token_balance = ctx.accounts.escrow_token_account.amount;
+        let taker_token_balance = ctx.accounts.taker_token_account.amount;
+
+        require!(
+            taker_token_balance >= escrow.expected_receive_amount,
+            ErrorCode::InsufficientFunds
+        );
+
+        let seeds = &[
+            b"escrow",
+            escrow.maker.as_ref(),
+            &[escrow.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer escrow tokens to taker
+        let transfer_to_taker = SplTransfer {
+            from: ctx.accounts.escrow_token_account.to_account_info(),
+            to: ctx.accounts.taker_receive_token_account.to_account_info(),
+            authority: ctx.accounts.escrow.to_account_info(),
+        };
+
+        let cpi_ctx_taker = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_to_taker,
+            signer_seeds,
+        );
+
+        token::transfer(cpi_ctx_taker, escrow_token_balance)?;
+
+        // Transfer taker tokens to maker
+        let transfer_to_maker = SplTransfer {
+            from: ctx.accounts.taker_token_account.to_account_info(),
+            to: ctx.accounts.maker_receive_token_account.to_account_info(),
+            authority: ctx.accounts.taker.to_account_info(),
+        };
+
+        let cpi_ctx_maker = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_to_maker,
+        );
+
+        token::transfer(cpi_ctx_maker, escrow.expected_receive_amount)?;
+        Ok(())
+    }
+
+    // ============ AMM INSTRUCTIONS ============
+
+    pub fn initialize_amm(ctx: Context<InitializeAmm>, fee: u16) -> Result<()> {
+        require!(fee <= 10000, ErrorCode::InvalidFee); // Max 100% fee
+
+        let amm = &mut ctx.accounts.amm;
+        amm.admin = ctx.accounts.admin.key();
+        amm.fee = fee;
+        amm.token_a_mint = ctx.accounts.token_a_mint.key();
+        amm.token_b_mint = ctx.accounts.token_b_mint.key();
+        amm.token_a_vault = ctx.accounts.token_a_vault.key();
+        amm.token_b_vault = ctx.accounts.token_b_vault.key();
+        amm.lp_mint = ctx.accounts.lp_mint.key();
+        amm.bump = ctx.bumps.amm;
+        Ok(())
+    }
+
+    pub fn deposit_liquidity(ctx: Context<DepositLiquidity>, amount_a: u64, amount_b: u64, min_lp_tokens: u64) -> Result<()> {
+        require!(amount_a > 0 && amount_b > 0, ErrorCode::InvalidAmount);
+
+        let vault_a_balance = ctx.accounts.token_a_vault.amount;
+        let vault_b_balance = ctx.accounts.token_b_vault.amount;
+        let lp_supply = ctx.accounts.lp_mint.supply;
+
+        let lp_tokens_to_mint = if lp_supply == 0 {
+            // Initial liquidity provision
+            (amount_a.checked_mul(amount_b).unwrap() as f64).sqrt() as u64
+        } else {
+            // Subsequent liquidity provision
+            let ratio_a = (amount_a as f64) / (vault_a_balance as f64);
+            let ratio_b = (amount_b as f64) / (vault_b_balance as f64);
+            let ratio = ratio_a.min(ratio_b);
+            (lp_supply as f64 * ratio) as u64
+        };
+
+        require!(lp_tokens_to_mint >= min_lp_tokens, ErrorCode::SlippageExceeded);
+
+        let seeds = &[
+            b"amm",
+            ctx.accounts.amm.token_a_mint.as_ref(),
+            ctx.accounts.amm.token_b_mint.as_ref(),
+            &[ctx.accounts.amm.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer token A from user to vault
+        let transfer_a = SplTransfer {
+            from: ctx.accounts.user_token_a.to_account_info(),
+            to: ctx.accounts.token_a_vault.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_a),
+            amount_a,
+        )?;
+
+        // Transfer token B from user to vault
+        let transfer_b = SplTransfer {
+            from: ctx.accounts.user_token_b.to_account_info(),
+            to: ctx.accounts.token_b_vault.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_b),
+            amount_b,
+        )?;
+
+        // Mint LP tokens to user
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::MintTo {
+                    mint: ctx.accounts.lp_mint.to_account_info(),
+                    to: ctx.accounts.user_lp_token.to_account_info(),
+                    authority: ctx.accounts.amm.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            lp_tokens_to_mint,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn withdraw_liquidity(ctx: Context<WithdrawLiquidity>, lp_amount: u64, min_amount_a: u64, min_amount_b: u64) -> Result<()> {
+        require!(lp_amount > 0, ErrorCode::InvalidAmount);
+
+        let vault_a_balance = ctx.accounts.token_a_vault.amount;
+        let vault_b_balance = ctx.accounts.token_b_vault.amount;
+        let lp_supply = ctx.accounts.lp_mint.supply;
+
+        let amount_a = (vault_a_balance as f64 * lp_amount as f64 / lp_supply as f64) as u64;
+        let amount_b = (vault_b_balance as f64 * lp_amount as f64 / lp_supply as f64) as u64;
+
+        require!(amount_a >= min_amount_a && amount_b >= min_amount_b, ErrorCode::SlippageExceeded);
+
+        let seeds = &[
+            b"amm",
+            ctx.accounts.amm.token_a_mint.as_ref(),
+            ctx.accounts.amm.token_b_mint.as_ref(),
+            &[ctx.accounts.amm.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Burn LP tokens
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Burn {
+                    mint: ctx.accounts.lp_mint.to_account_info(),
+                    from: ctx.accounts.user_lp_token.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
+                },
+            ),
+            lp_amount,
+        )?;
+
+        // Transfer token A from vault to user
+        let transfer_a = SplTransfer {
+            from: ctx.accounts.token_a_vault.to_account_info(),
+            to: ctx.accounts.user_token_a.to_account_info(),
+            authority: ctx.accounts.amm.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer_a, signer_seeds),
+            amount_a,
+        )?;
+
+        // Transfer token B from vault to user
+        let transfer_b = SplTransfer {
+            from: ctx.accounts.token_b_vault.to_account_info(),
+            to: ctx.accounts.user_token_b.to_account_info(),
+            authority: ctx.accounts.amm.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer_b, signer_seeds),
+            amount_b,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn swap_tokens(ctx: Context<SwapTokens>, amount_in: u64, min_amount_out: u64) -> Result<()> {
+        require!(amount_in > 0, ErrorCode::InvalidAmount);
+
+        let vault_a_balance = ctx.accounts.token_a_vault.amount;
+        let vault_b_balance = ctx.accounts.token_b_vault.amount;
+        let fee = ctx.accounts.amm.fee;
+
+        // Calculate swap output using constant product formula (x * y = k)
+        let amount_in_with_fee = amount_in.checked_mul(10000 - fee as u64).unwrap().checked_div(10000).unwrap();
+        
+        let amount_out = if ctx.accounts.token_a_vault.mint == ctx.accounts.user_token_in.mint {
+            // Swapping A for B
+            vault_b_balance.checked_mul(amount_in_with_fee).unwrap()
+                .checked_div(vault_a_balance.checked_add(amount_in_with_fee).unwrap()).unwrap()
+        } else {
+            // Swapping B for A
+            vault_a_balance.checked_mul(amount_in_with_fee).unwrap()
+                .checked_div(vault_b_balance.checked_add(amount_in_with_fee).unwrap()).unwrap()
+        };
+
+        require!(amount_out >= min_amount_out, ErrorCode::SlippageExceeded);
+
+        let seeds = &[
+            b"amm",
+            ctx.accounts.amm.token_a_mint.as_ref(),
+            ctx.accounts.amm.token_b_mint.as_ref(),
+            &[ctx.accounts.amm.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Transfer input tokens from user to vault
+        let transfer_in = SplTransfer {
+            from: ctx.accounts.user_token_in.to_account_info(),
+            to: ctx.accounts.vault_token_in.to_account_info(),
+            authority: ctx.accounts.user.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), transfer_in),
+            amount_in,
+        )?;
+
+        // Transfer output tokens from vault to user
+        let transfer_out = SplTransfer {
+            from: ctx.accounts.vault_token_out.to_account_info(),
+            to: ctx.accounts.user_token_out.to_account_info(),
+            authority: ctx.accounts.amm.to_account_info(),
+        };
+
+        token::transfer(
+            CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer_out, signer_seeds),
+            amount_out,
+        )?;
+
+        Ok(())
+    }
+}
+
+// ============ ACCOUNT STRUCTURES ============
+
+// Vault Accounts
+#[derive(Accounts)]
+pub struct InitializeVault<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    
+    #[account(
+        init,
+        payer = owner,
+        space = VaultState::INIT_SPACE,
+        seeds = [b"state", owner.key().as_ref()],
+        bump
+    )]
+    pub vault_state: Account<'info, VaultState>,
+    
+    #[account(
+        seeds = [b"auth", vault_state.key().as_ref()],
+        bump
+    )]
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub vault_auth: UncheckedAccount<'info>,
+    
+    #[account(
+        seeds = [b"vault", vault_state.key().as_ref()],
+        bump
+    )]
+    pub vault: SystemAccount<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DepositSol<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    
+    #[account(
+        seeds = [b"state", owner.key().as_ref()],
+        bump = vault_state.vault_bump,
+        has_one = owner
+    )]
+    pub vault_state: Account<'info, VaultState>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault", vault_state.key().as_ref()],
+        bump
+    )]
+    pub vault: SystemAccount<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawSol<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    
+    #[account(
+        seeds = [b"state", owner.key().as_ref()],
+        bump = vault_state.vault_bump,
+        has_one = owner
+    )]
+    pub vault_state: Account<'info, VaultState>,
+    
+    #[account(
+        seeds = [b"auth", vault_state.key().as_ref()],
+        bump = vault_state.auth_bump
+    )]
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub vault_auth: UncheckedAccount<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault", vault_state.key().as_ref()],
+        bump
+    )]
+    pub vault: SystemAccount<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CloseVault<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    
+    #[account(
+        mut,
+        close = owner,
+        seeds = [b"state", owner.key().as_ref()],
+        bump = vault_state.vault_bump,
+        has_one = owner
+    )]
+    pub vault_state: Account<'info, VaultState>,
+    
+    #[account(
+        seeds = [b"auth", vault_state.key().as_ref()],
+        bump = vault_state.auth_bump
+    )]
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub vault_auth: UncheckedAccount<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault", vault_state.key().as_ref()],
+        bump
+    )]
+    pub vault: SystemAccount<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+// Escrow Accounts
+#[derive(Accounts)]
+pub struct InitializeEscrow<'info> {
+    #[account(mut)]
+    pub maker: Signer<'info>,
+    
+    #[account(
+        init,
+        payer = maker,
+        space = EscrowState::INIT_SPACE,
+        seeds = [b"escrow", maker.key().as_ref()],
+        bump
+    )]
+    pub escrow: Account<'info, EscrowState>,
+    
+    #[account(mut)]
+    pub maker_token_account: Account<'info, TokenAccount>,
+    
+    pub maker_receive_token_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        init,
+        payer = maker,
+        token::mint = maker_token_account.mint,
+        token::authority = escrow,
+        seeds = [b"escrow_vault", escrow.key().as_ref()],
+        bump
+    )]
+    pub escrow_token_account: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CancelEscrow<'info> {
+    #[account(mut)]
+    pub maker: Signer<'info>,
+    
+    #[account(
+        mut,
+        close = maker,
+        seeds = [b"escrow", maker.key().as_ref()],
+        bump = escrow.bump,
+        has_one = maker
+    )]
+    pub escrow: Account<'info, EscrowState>,
+    
+    #[account(mut)]
+    pub maker_token_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"escrow_vault", escrow.key().as_ref()],
+        bump
+    )]
+    pub escrow_token_account: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct ExchangeEscrow<'info> {
+    #[account(mut)]
+    pub taker: Signer<'info>,
+    
+    #[account(
+        mut,
+        close = maker,
+        seeds = [b"escrow", maker.key().as_ref()],
+        bump = escrow.bump,
+        has_one = maker,
+        has_one = maker_receive_token_account
+    )]
+    pub escrow: Account<'info, EscrowState>,
+    
+    /// CHECK: This is validated in the escrow account
+    #[account(mut)]
+    pub maker: UncheckedAccount<'info>,
+    
+    #[account(mut)]
+    pub maker_receive_token_account: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub taker_token_account: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub taker_receive_token_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"escrow_vault", escrow.key().as_ref()],
+        bump
+    )]
+    pub escrow_token_account: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+// AMM Accounts
+#[derive(Accounts)]
+pub struct InitializeAmm<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        init,
+        payer = admin,
+        space = AmmState::INIT_SPACE,
+        seeds = [b"amm", token_a_mint.key().as_ref(), token_b_mint.key().as_ref()],
+        bump
+    )]
+    pub amm: Account<'info, AmmState>,
+    
+    pub token_a_mint: Account<'info, Mint>,
+    pub token_b_mint: Account<'info, Mint>,
+    
+    #[account(
+        init,
+        payer = admin,
+        token::mint = token_a_mint,
+        token::authority = amm,
+        seeds = [b"vault_a", amm.key().as_ref()],
+        bump
+    )]
+    pub token_a_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        init,
+        payer = admin,
+        token::mint = token_b_mint,
+        token::authority = amm,
+        seeds = [b"vault_b", amm.key().as_ref()],
+        bump
+    )]
+    pub token_b_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        init,
+        payer = admin,
+        mint::decimals = 6,
+        mint::authority = amm,
+        seeds = [b"lp_mint", amm.key().as_ref()],
+        bump
+    )]
+    pub lp_mint: Account<'info, Mint>,
+    
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DepositLiquidity<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        seeds = [b"amm", token_a_mint.key().as_ref(), token_b_mint.key().as_ref()],
+        bump = amm.bump
+    )]
+    pub amm: Account<'info, AmmState>,
+    
+    pub token_a_mint: Account<'info, Mint>,
+    pub token_b_mint: Account<'info, Mint>,
+    
+    #[account(mut)]
+    pub user_token_a: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub user_token_b: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub user_lp_token: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault_a", amm.key().as_ref()],
+        bump
+    )]
+    pub token_a_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault_b", amm.key().as_ref()],
+        bump
+    )]
+    pub token_b_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"lp_mint", amm.key().as_ref()],
+        bump
+    )]
+    pub lp_mint: Account<'info, Mint>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawLiquidity<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        seeds = [b"amm", amm.token_a_mint.as_ref(), amm.token_b_mint.as_ref()],
+        bump = amm.bump
+    )]
+    pub amm: Account<'info, AmmState>,
+    
+    #[account(mut)]
+    pub user_token_a: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub user_token_b: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub user_lp_token: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault_a", amm.key().as_ref()],
+        bump
+    )]
+    pub token_a_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault_b", amm.key().as_ref()],
+        bump
+    )]
+    pub token_b_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"lp_mint", amm.key().as_ref()],
+        bump
+    )]
+    pub lp_mint: Account<'info, Mint>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct SwapTokens<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        seeds = [b"amm", amm.token_a_mint.as_ref(), amm.token_b_mint.as_ref()],
+        bump = amm.bump
+    )]
+    pub amm: Account<'info, AmmState>,
+    
+    #[account(mut)]
+    pub user_token_in: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub user_token_out: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub vault_token_in: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub vault_token_out: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault_a", amm.key().as_ref()],
+        bump
+    )]
+    pub token_a_vault: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        seeds = [b"vault_b", amm.key().as_ref()],
+        bump
+    )]
+    pub token_b_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+// ============ DATA STRUCTURES ============
+
+#[account]
+#[derive(InitSpace)]
+pub struct VaultState {
+    pub owner: Pubkey,
+    pub auth_bump: u8,
+    pub vault_bump: u8,
+    pub score: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct EscrowState {
+    pub maker: Pubkey,
+    pub maker_token_account: Pubkey,
+    pub maker_receive_token_account: Pubkey,
+    pub expected_receive_amount: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct AmmState {
+    pub admin: Pubkey,
+    pub token_a_mint: Pubkey,
+    pub token_b_mint: Pubkey,
+    pub token_a_vault: Pubkey,
+    pub token_b_vault: Pubkey,
+    pub lp_mint: Pubkey,
+    pub fee: u16, // Fee in basis points (1 basis point = 0.01%)
+    pub bump: u8,
+}
+
+// ============ ERROR CODES ============
+
+#[error_code]
+pub enum ErrorCode {
+    #[msg("Invalid amount")]
+    InvalidAmount,
+    #[msg("Insufficient funds")]
+    InsufficientFunds,
+    #[msg("Invalid fee")]
+    InvalidFee,
+    #[msg("Slippage tolerance exceeded")]
+    SlippageExceeded,
+}

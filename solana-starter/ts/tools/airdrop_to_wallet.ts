@@ -1,8 +1,9 @@
 import prompt from 'prompt'
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js"
+import { appConfig } from '../config';
 
-//Create a Solana devnet connection to claim 2 devnet SOL tokens
-const connection = new Connection("https://api.devnet.solana.com");
+// Create a Solana connection using configured RPC URL
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 (async () => {
     // Start our prompt

@@ -13,6 +13,7 @@ import {
 } from "@coral-xyz/anchor";
 import { WbaVault, IDL } from "./programs/wba_vault";
 import wallet from "../turbin3-wallet.json";
+import { appConfig } from '../config';
 
 // Import our keypair from the wallet file
 const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
@@ -21,7 +22,7 @@ const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
 const commitment: Commitment = "confirmed";
 
 // Create a devnet connection
-const connection = new Connection("https://api.devnet.solana.com");
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 // Create our anchor provider
 const provider = new AnchorProvider(connection, new Wallet(keypair), {
@@ -35,8 +36,16 @@ const program = new Program<WbaVault>(
   provider
 );
 
-// Replace with your actual vault state public key from vault_init.ts
-const vaultState = new PublicKey("REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS");
+// Get vault state address from configuration
+import { appConfig } from '../config';
+
+const vaultState = appConfig.vault.vaultStateAddress;
+if (!vaultState) {
+  console.error("❌ Vault state address not configured!");
+  console.log("Please set VAULT_STATE_ADDRESS in your .env file");
+  console.log("You can get this address by running: npm run vault_init");
+  process.exit(1);
+}
 
 (async () => {
   try {
@@ -92,7 +101,7 @@ const vaultState = new PublicKey("REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS");
   } catch (e) {
     console.error(`Oops, something went wrong: ${e}`);
     console.log("\nMake sure to:");
-    console.log("1. Replace REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS with your actual vault state address");
+    console.log("1. Set VAULT_STATE_ADDRESS in your .env file with the address from vault_init");
     console.log("2. Ensure you have initialized a vault first using vault_init.ts");
     console.log("3. Ensure you are the owner of the vault state");
   }

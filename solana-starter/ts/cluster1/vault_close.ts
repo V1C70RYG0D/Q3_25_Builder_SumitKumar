@@ -22,7 +22,7 @@ const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
 const commitment: Commitment = "confirmed";
 
 // Create a devnet connection
-const connection = new Connection("https://api.devnet.solana.com");
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 // Create our anchor provider
 const provider = new AnchorProvider(connection, new Wallet(keypair), {
@@ -32,8 +32,16 @@ const provider = new AnchorProvider(connection, new Wallet(keypair), {
 // Create our program
 const program = new Program<Turbin3Rust>(IDL, provider);
 
-// Replace with your actual vault state public key from vault_init.ts
-const vaultState = new PublicKey("REPLACE_WITH_YOUR_VAULT_STATE_ADDRESS");
+// Get vault state address from configuration
+import { appConfig } from '../config';
+
+const vaultState = appConfig.vault.vaultStateAddress;
+if (!vaultState) {
+  console.error("❌ Vault state address not configured!");
+  console.log("Please set VAULT_STATE_ADDRESS in your .env file");
+  console.log("You can get this address by running: npm run vault_init");
+  process.exit(1);
+}
 
 (async () => {
   try {

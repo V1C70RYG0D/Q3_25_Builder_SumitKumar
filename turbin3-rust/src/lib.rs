@@ -10,7 +10,11 @@ mod tests {
     use bs58;
     use spl_token;
 
-    const RPC_URL: &str = "https://api.devnet.solana.com";
+    use std::env;
+
+    fn get_rpc_url() -> String {
+        env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string())
+    }
 
     #[test]
     fn keygen() {
@@ -58,7 +62,7 @@ mod tests {
         let keypair = read_keypair_file("dev-wallet.json").expect("Couldn't find wallet file");
 
         // Connect to Solana devnet
-        let client = RpcClient::new(RPC_URL);
+        let client = RpcClient::new(&get_rpc_url());
 
         // Request 2 SOL airdrop (2 billion lamports)
         match client.request_airdrop(&keypair.pubkey(), 2_000_000_000u64) {
@@ -81,7 +85,7 @@ mod tests {
         let to_pubkey = Pubkey::from_str("8SRwaR9wr4n7a3tCWMgejAV5DAJnky8NXQTS8qWgsEyC").unwrap();
         
         // Connect to devnet
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
         
         // Fetch recent blockhash
         let recent_blockhash = rpc_client
@@ -116,7 +120,7 @@ mod tests {
         let to_pubkey = Pubkey::from_str("8SRwaR9wr4n7a3tCWMgejAV5DAJnky8NXQTS8qWgsEyC").unwrap();
         
         // Connect to devnet
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
         
         // Fetch recent blockhash
         let recent_blockhash = rpc_client
@@ -162,7 +166,7 @@ mod tests {
     #[test]
     fn submit_rs() {
         // Create a Solana RPC client
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
 
         // Load your Turbin3 signer keypair (NOT dev-wallet.json)
         let turbin3_private_key = ;
@@ -236,7 +240,7 @@ mod tests {
         let signer = Keypair::from_bytes(&turbin3_private_key).expect("Failed to create keypair from private key");
 
         // Create RPC client
-        let rpc_client = RpcClient::new(RPC_URL);
+        let rpc_client = RpcClient::new(&get_rpc_url());
 
         // Check SOL balance
         match rpc_client.get_balance(&signer.pubkey()) {

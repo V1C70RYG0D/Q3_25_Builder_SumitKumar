@@ -1,0 +1,122 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  compliance-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: GI.txt Compliance Check
+      run: |
+        echo "🔍 Running GI.txt compliance verification..."
+        bash final-compliance-check.sh
+
+  typescript-tests:
+    runs-on: ubuntu-latest
+    needs: compliance-check
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'solana-starter/ts/package-lock.json'
+    
+    - name: Install dependencies
+      working-directory: ./solana-starter/ts
+      run: npm install
+    
+    - name: Run linting
+      working-directory: ./solana-starter/ts
+      run: npm run lint
+    
+    - name: Check formatting
+      working-directory: ./solana-starter/ts
+      run: npm run format:check
+    
+    - name: Run tests
+      working-directory: ./solana-starter/ts
+      run: npm run test:coverage
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        directory: ./solana-starter/ts/coverage
+
+  rust-tests:
+    runs-on: ubuntu-latest
+    needs: compliance-check
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+    
+    - name: Check Rust formatting
+      working-directory: ./turbin3-rust
+      run: cargo fmt --check
+    
+    - name: Run Clippy
+      working-directory: ./turbin3-rust
+      run: cargo clippy -- -D warnings
+    
+    - name: Run Rust tests
+      working-directory: ./turbin3-rust
+      run: cargo test
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: compliance-check
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Run npm audit
+      working-directory: ./solana-starter/ts
+      run: npm audit --audit-level=moderate
+    
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+    
+    - name: Run cargo audit
+      working-directory: ./turbin3-rust
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+  deployment-ready:
+    runs-on: ubuntu-latest
+    needs: [typescript-tests, rust-tests, security-scan]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate production configuration
+      run: |
+        echo "✅ All tests passed"
+        echo "✅ Code quality checks passed"
+        echo "✅ Security scans passed"
+        echo "🚀 Ready for deployment"

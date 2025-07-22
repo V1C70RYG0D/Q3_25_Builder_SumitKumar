@@ -1,16 +1,26 @@
 import { Program, Wallet, AnchorProvider, setProvider, Idl } from "@coral-xyz/anchor";
-import { Connection, Keypair, clusterApiUrl, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, clusterApiUrl, PublicKey, SystemProgram } from "@solana/web3.js";
+import { config } from 'dotenv';
 
-// NOTE: Replace this with your actual wallet import
-// import wallet from "./your-wallet.json"
-// const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
+// Load environment variables
+config();
 
-// For demo purposes, we'll generate a new keypair
-// In a real application, you'd load your actual wallet
-const keypair = Keypair.generate();
+// Load wallet from environment configuration
+const walletPath = process.env.WALLET_PATH || "./Turbin3-wallet.json";
 
-// Create a devnet connection
-const connection = new Connection(clusterApiUrl("devnet"));
+let keypair: Keypair;
+try {
+    const walletData = require(walletPath);
+    keypair = Keypair.fromSecretKey(new Uint8Array(walletData));
+} catch (error) {
+    console.error(`❌ Failed to load wallet from ${walletPath}:`, error);
+    console.log("Please ensure your wallet file exists or run 'npm run keygen' to create one");
+    process.exit(1);
+}
+
+// Get RPC URL from environment or use default devnet
+const rpcUrl = process.env.SOLANA_RPC_URL || clusterApiUrl("devnet");
+const connection = new Connection(rpcUrl);
 
 // Create wallet and provider
 const wallet = new Wallet(keypair);
@@ -22,8 +32,15 @@ const provider = new AnchorProvider(connection, wallet, {
 // Set the provider as the default
 setProvider(provider);
 
-// Program ID - replace with your actual deployed program ID
-const PROGRAM_ID = new PublicKey("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+// Get program ID from environment
+const programIdString = process.env.WBA_PREREQ_PROGRAM_ID;
+if (!programIdString) {
+    console.error("❌ WBA_PREREQ_PROGRAM_ID not set in environment variables");
+    console.log("Please set WBA_PREREQ_PROGRAM_ID in your .env file");
+    process.exit(1);
+}
+
+const PROGRAM_ID = new PublicKey(programIdString);
 
 // Basic IDL for the turbin3-rust program
 const IDL: Idl = {
@@ -73,7 +90,11 @@ async function enroll() {
         // Example for a submit method (if it exists):
         /*
         console.log("🔄 Submitting GitHub handle...");
-        const githubHandle = Buffer.from("your-github-handle", "utf8");
+        const githubUsername = process.env.GITHUB_USERNAME;
+        if (!githubUsername) {
+            throw new Error("GITHUB_USERNAME environment variable is required");
+        }
+        const githubHandle = Buffer.from(githubUsername, "utf8");
         
         const submitTx = await program.methods
             .submit(githubHandle)
@@ -110,7 +131,7 @@ async function setupWallet() {
     console.log(`   solana airdrop 2 ${keypair.publicKey.toBase58()} --url devnet`);
     console.log("");
     console.log("3. Update this file to import your wallet:");
-    console.log("   // import wallet from './your-wallet.json'");
+    console.log("   // import wallet from './Turbin3-wallet.json'");
     console.log("   // const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));");
     console.log("");
 }
@@ -120,8 +141,8 @@ async function main() {
     console.log("🎓 Turbin3 Enrollment Script");
     console.log("============================");
     
-    // Check if using demo wallet
-    if (keypair.publicKey.toBase58() !== "11111111111111111111111111111111") {
+    // Check if using demo wallet (avoid hardcoded comparison)
+    if (!keypair.publicKey.equals(SystemProgram.programId)) {
         console.log("⚠️  Using generated keypair for demo purposes");
         console.log("📝 For real enrollment, please set up your actual wallet\n");
         await setupWallet();

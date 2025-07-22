@@ -4,9 +4,10 @@ import { createNft, mplTokenMetadata } from "@metaplex-foundation/mpl-token-meta
 
 import wallet from "../turbin3-wallet.json"
 import base58 from "bs58";
+import { appConfig } from '../config';
 
-const RPC_ENDPOINT = "https://api.devnet.solana.com";
-const umi = createUmi(RPC_ENDPOINT);
+// Use configured RPC endpoint
+const umi = createUmi(appConfig.solana.rpcUrl);
 
 let keypair = umi.eddsa.createKeypairFromSecretKey(new Uint8Array(wallet));
 const myKeypairSigner = createSignerFromKeypair(umi, keypair);

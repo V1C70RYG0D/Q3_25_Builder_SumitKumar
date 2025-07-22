@@ -5,7 +5,17 @@
  * for an Anchor vault program, including both Rust and TypeScript code.
  */
 
+import { appConfig, isVaultConfigured } from '../config';
+
 console.log("=== ANCHOR VAULT CLOSE INSTRUCTION - COMPLETE IMPLEMENTATION ===\n");
+
+// Check if vault is configured
+if (!isVaultConfigured()) {
+  console.log("❌ Vault not configured!");
+  console.log("Please set VAULT_STATE_ADDRESS, VAULT_AUTH_ADDRESS, and VAULT_ADDRESS in your .env file");
+  console.log("You can get these addresses by running the vault_init script first");
+  process.exit(1);
+}
 
 // ========================================
 // 1. RUST IMPLEMENTATION (programs/vault/src/lib.rs)
@@ -248,9 +258,10 @@ import {
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import { Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import { appConfig } from '../config';
 
-// Setup connection and provider
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+// Setup connection using configuration
+const connection = new Connection(appConfig.solana.rpcUrl, appConfig.solana.commitment);
 const wallet = new Wallet(keypair);
 const provider = new AnchorProvider(connection, wallet, {});
 const program = new Program(IDL, PROGRAM_ID, provider);
@@ -326,8 +337,10 @@ async function closeVault(vaultStateAddress: PublicKey, owner: Keypair) {
 
 // Usage example
 async function main() {
-  const vaultState = new PublicKey("YOUR_VAULT_STATE_ADDRESS");
-  await closeVault(vaultState, ownerKeypair);
+  if (!appConfig.vault.vaultStateAddress) {
+    throw new Error("VAULT_STATE_ADDRESS not configured in environment");
+  }
+  await closeVault(appConfig.vault.vaultStateAddress, ownerKeypair);
 }
 `;
 

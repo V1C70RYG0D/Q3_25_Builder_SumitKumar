@@ -6,8 +6,11 @@ import {
   Commitment,
 } from "@solana/web3.js";
 import { Program, Wallet, AnchorProvider, Address } from "@coral-xyz/anchor";
+import { appConfig } from '../config';
 import { Turbin3Rust, IDL } from "./programs/turbin3_vault";
+import { appConfig } from '../config';
 import wallet from "../turbin3-wallet.json";
+import { appConfig } from '../config';
 
 // Import our keypair from the wallet file
 const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
@@ -16,7 +19,7 @@ const keypair = Keypair.fromSecretKey(new Uint8Array(wallet));
 const commitment: Commitment = "confirmed";
 
 // Create a devnet connection
-const connection = new Connection("https://api.devnet.solana.com");
+const connection = new Connection(appConfig.solana.rpcUrl);
 
 // Create our anchor provider
 const provider = new AnchorProvider(connection, new Wallet(keypair), {
